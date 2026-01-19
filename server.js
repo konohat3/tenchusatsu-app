@@ -4,6 +4,10 @@ const { Solar } = require("lunar-javascript");
 const app = express();
 app.use(express.urlencoded({ extended: true }));
 
+// 作成者リンク（ここを自分の表記にしたければ変更OK）
+const AUTHOR_NAME = "tesokakonoha.com";
+const AUTHOR_URL = "https://tesokakonoha.com/";
+
 // 6タイプ → ブログURL（ﾈｺﾁｬﾝ確定版）
 const TYPE_TO_URL = {
   "子丑": "https://tesokakonoha.com/tenchusatsu-neushi/",
@@ -20,7 +24,6 @@ const ZHIS = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌",
 function getDayGanzhiFromSolar(y, m, d) {
   const lunar = Solar.fromYmd(y, m, d).getLunar();
 
-  // 日干支を直接取得（取れない版もあるのでフォールバック）
   if (typeof lunar.getDayInGanZhi === "function") {
     return lunar.getDayInGanZhi();
   }
@@ -28,7 +31,6 @@ function getDayGanzhiFromSolar(y, m, d) {
     return `${lunar.getDayGan()}${lunar.getDayZhi()}`;
   }
 
-  // 最終手段：文字列から「干支っぽいもの」を探す（誤検出しうるので最後）
   const s = lunar.toFullString();
   for (const g of GANS) {
     for (const z of ZHIS) {
@@ -50,15 +52,21 @@ function tenchusatsuTypeFromDayGanzhi(dayGanzhi) {
     throw new Error(`日干支の形式が想定外: ${dayGanzhi}`);
   }
 
-  // 旬頭の地支 = (その日の地支index - 干index) mod 12
   const xunStartZhiIndex = (zhiIndex - ganIndex + 12) % 12;
   const xunStartZhi = ZHIS[xunStartZhiIndex];
 
-  // 旬頭地支 → 空亡（二支） = 天中殺6タイプ
   const MAP = { "子":"戌亥","戌":"申酉","申":"午未","午":"辰巳","辰":"寅卯","寅":"子丑" };
   const type = MAP[xunStartZhi];
   if (!type) throw new Error(`旬頭地支が想定外: ${xunStartZhi}`);
   return type;
+}
+
+function footerHtml() {
+  return `
+    <div class="footer">
+      <a href="${AUTHOR_URL}" target="_blank" rel="noopener noreferrer">Created by ${AUTHOR_NAME}</a>
+    </div>
+  `;
 }
 
 function renderPage(html) {
@@ -71,13 +79,10 @@ function renderPage(html) {
   body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;margin:24px;line-height:1.6}
   .card{max-width:720px;margin:0 auto;border:1px solid #ddd;border-radius:12px;padding:16px}
 
-  /* 全体を中央寄せするためのラッパー */
   .center { text-align: center; }
 
-  /* 見出しも中央 */
   h1{ text-align:center; margin: 0 0 12px; }
 
-  /* フォーム要素は中央配置＆幅を制限（読みやすく） */
   form { margin-top: 10px; }
   label{display:block;margin-top:12px;text-align:center}
   input,button{
@@ -90,7 +95,6 @@ function renderPage(html) {
 
   .muted{color:#666;font-size:13px;margin-top:10px}
 
-  /* 結果欄：中央寄せ＋薄い黄色 */
   .result{
     margin:16px auto 0;
     padding:12px;
@@ -100,7 +104,6 @@ function renderPage(html) {
     text-align:center;
   }
 
-  /* ボタンも中央 */
   a.btn{
     display:inline-block;
     margin-top:12px;
@@ -113,12 +116,29 @@ function renderPage(html) {
     background:#fff;
   }
 
-  /* 戻るリンクも中央に */
   .back { margin-top:16px; text-align:center; }
+
+  /* 追加：作成者リンク（小さく控えめ） */
+  .footer{
+    margin-top:18px;
+    padding-top:12px;
+    border-top:1px solid #eee;
+    text-align:center;
+    font-size:12px;
+    color:#777;
+  }
+  .footer a{
+    color:#777;
+    text-decoration:none;
+  }
+  .footer a:hover{
+    text-decoration:underline;
+  }
 </style></head>
 <body>
   <div class="card">
     ${html}
+    ${footerHtml()}
   </div>
 </body></html>`;
 }
@@ -159,7 +179,7 @@ app.post("/result", (req, res) => {
           <div><strong>日干支：</strong>${dayGanzhi}</div>
         </div>
 
-        <a class="btn" href="${url}">解説ページへ</a>
+        <a class="btn" href="${url}" target="_blank" rel="noopener noreferrer">解説ページへ</a>
 
         <div class="back"><a href="/">← もう一度</a></div>
       </div>
