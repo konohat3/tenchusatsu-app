@@ -31,7 +31,7 @@ function isValidYmd(y, m, d) {
   if (m < 1 || m > 12) return false;
   if (d < 1 || d > 31) return false;
 
-  // JS Dateで厳密チェック（900年などもプロレプティックに扱われる）
+  // 存在する日付かチェック（UTCで確実に）
   const dt = new Date(Date.UTC(y, m - 1, d));
   return (
     dt.getUTCFullYear() === y &&
@@ -41,7 +41,6 @@ function isValidYmd(y, m, d) {
 }
 
 function getDayGanzhiFromSolar(y, m, d) {
-  // ここがライブラリの対応範囲外だと例外になる可能性がある
   const lunar = Solar.fromYmd(y, m, d).getLunar();
 
   if (typeof lunar.getDayInGanZhi === "function") {
@@ -69,11 +68,9 @@ function tenchusatsuTypeFromDayGanzhi(dayGanzhi) {
   const zhiIndex = ZHIS.indexOf(zhi);
   if (ganIndex < 0 || zhiIndex < 0) throw new Error(`日干支の形式が想定外: ${dayGanzhi}`);
 
-  // 旬頭の地支 = (その日の地支index - 干index) mod 12
   const xunStartZhiIndex = (zhiIndex - ganIndex + 12) % 12;
   const xunStartZhi = ZHIS[xunStartZhiIndex];
 
-  // 旬頭地支 → 空亡（二支） = 天中殺6タイプ
   const MAP = { "子":"戌亥","戌":"申酉","申":"午未","午":"辰巳","辰":"寅卯","寅":"子丑" };
   const type = MAP[xunStartZhi];
   if (!type) throw new Error(`旬頭地支が想定外: ${xunStartZhi}`);
@@ -103,37 +100,39 @@ function renderPage(html) {
     border:1px solid #ddd;
     border-radius:12px;
     padding:16px;
-    overflow:hidden; /* はみ出し防止の決定打 */
+    overflow:hidden;
   }
   .center{ text-align:center; }
-
   h1{ text-align:center; margin: 0 0 12px; }
 
-  /* フォーム：中央 + はみ出さない */
   form{ margin-top:10px; }
   label{display:block;margin-top:12px;text-align:center}
 
-  /* 入力群（年/月/日） */
+  /* 入力列（年手入力＋月日select） */
   .dob{
-    width:min(520px, 100%);
+    width:min(560px, 100%);
     margin: 6px auto 0;
-    display:flex;
-    gap:8px;
+    display:grid;
+    grid-template-columns: 1.3fr 1fr 1fr;
+    gap:10px;
     justify-content:center;
+    align-items:end;
   }
-  select, button{
+
+  .field{ text-align:left; }
+  .field .cap{ font-size:13px; color:#555; text-align:center; margin-bottom:4px; }
+
+  input, select, button{
     font-size:16px;
     padding:10px;
-    margin-top:6px;
     max-width:100%;
+    width:100%;
   }
-  select{
-    width: 100%;
-    min-width: 0;
-  }
-  .dob select{
-    flex: 1 1 0;
-  }
+
+  /* 年入力：数字キーボード誘導 */
+  input[type="number"]{ appearance:textfield; }
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button{ -webkit-appearance: none; margin: 0; }
 
   button{
     cursor:pointer;
@@ -179,9 +178,12 @@ function renderPage(html) {
   .footer a{ color:#777; text-decoration:none; }
   .footer a:hover{ text-decoration:underline; }
 
-  /* スマホで選択を押しやすく */
-  @media (max-width: 420px){
-    .dob{ gap:6px; }
+  /* スマホでは縦積み */
+  @media (max-width: 520px){
+    .dob{
+      grid-template-columns: 1fr;
+      gap:8px;
+    }
   }
 </style>
 </head>
@@ -198,20 +200,38 @@ app.get("/", (req, res) => {
     <div class="center">
       <h1>天中殺チェック</h1>
 
-      <form method="POST" action="/result" id="form">
+      <form method="POST" action="/result" id="form" novalidate>
         <label>生年月日</label>
 
         <div class="dob" aria-label="生年月日">
-          <select name="y" id="y" required aria-label="年">
-            <option value="">年</option>
-          </select>
-          <select name="m" id="m" required aria-label="月">
-            <option value="">月</option>
-            ${Array.from({length:12}, (_,i)=>`<option value="${i+1}">${i+1}</option>`).join("")}
-          </select>
-          <select name="d" id="d" required aria-label="日">
-            <option value="">日</option>
-          </select>
+          <div class="field">
+            <div class="cap">年（西暦）</div>
+            <input
+              type="number"
+              name="y"
+              id="y"
+              inputmode="numeric"
+              min="${YEAR_MIN}"
+              max="${YEAR_MAX}"
+              placeholder="西暦（例：1982）"
+              required
+            />
+          </div>
+
+          <div class="field">
+            <div class="cap">月</div>
+            <select name="m" id="m" required aria-label="月">
+              <option value="">選択</option>
+              ${Array.from({length:12}, (_,i)=>`<option value="${i+1}">${i+1}</option>`).join("")}
+            </select>
+          </div>
+
+          <div class="field">
+            <div class="cap">日</div>
+            <select name="d" id="d" required aria-label="日">
+              <option value="">選択</option>
+            </select>
+          </div>
         </div>
 
         <button type="submit">チェックする</button>
@@ -228,21 +248,10 @@ app.get("/", (req, res) => {
   const y = document.getElementById('y');
   const m = document.getElementById('m');
   const d = document.getElementById('d');
-
-  // 年を入れる（新しい年が上）
-  const frag = document.createDocumentFragment();
-  for (let yr = YEAR_MAX; yr >= YEAR_MIN; yr--) {
-    const opt = document.createElement('option');
-    opt.value = String(yr);
-    opt.textContent = String(yr);
-    frag.appendChild(opt);
-  }
-  y.appendChild(frag);
+  const form = document.getElementById('form');
 
   function daysInMonth(year, month){
-    // month: 1-12
     if (!year || !month) return 31;
-    // UTCで月末を作る
     return new Date(Date.UTC(year, month, 0)).getUTCDate();
   }
 
@@ -251,24 +260,60 @@ app.get("/", (req, res) => {
     const month = parseInt(m.value, 10);
 
     const current = d.value;
-    d.innerHTML = '<option value="">日</option>';
+    d.innerHTML = '<option value="">選択</option>';
+
+    if (!Number.isFinite(year) || !Number.isFinite(month)) return;
 
     const max = daysInMonth(year, month);
-    const fragD = document.createDocumentFragment();
+    const frag = document.createDocumentFragment();
     for (let day=1; day<=max; day++){
       const opt = document.createElement('option');
       opt.value = String(day);
       opt.textContent = String(day);
-      fragD.appendChild(opt);
+      frag.appendChild(opt);
     }
-    d.appendChild(fragD);
+    d.appendChild(frag);
 
-    // 以前の選択がまだ有効なら戻す
     if (current && parseInt(current,10) <= max) d.value = current;
   }
 
-  y.addEventListener('change', rebuildDays);
+  y.addEventListener('input', rebuildDays);
   m.addEventListener('change', rebuildDays);
+
+  // 表示：入力が確定したら「西暦◯◯年」っぽく見せる（値は数字のまま）
+  y.addEventListener('blur', () => {
+    const year = parseInt(y.value, 10);
+    if (Number.isFinite(year)) {
+      // 見た目の補助（placeholderを変更）
+      y.placeholder = '西暦（例：1982）';
+    }
+  });
+
+  // 送信前チェック（ブラウザ標準より分かりやすく）
+  form.addEventListener('submit', (e) => {
+    const year = parseInt(y.value, 10);
+    const month = parseInt(m.value, 10);
+    const day = parseInt(d.value, 10);
+
+    if (!Number.isFinite(year) || year < YEAR_MIN || year > YEAR_MAX) {
+      e.preventDefault();
+      alert('年は ' + YEAR_MIN + '〜' + YEAR_MAX + ' の範囲で入力してください（例：1982）');
+      y.focus();
+      return;
+    }
+    if (!Number.isFinite(month)) {
+      e.preventDefault();
+      alert('月を選択してください');
+      m.focus();
+      return;
+    }
+    if (!Number.isFinite(day)) {
+      e.preventDefault();
+      alert('日を選択してください');
+      d.focus();
+      return;
+    }
+  });
 })();
 </script>
   `));
@@ -281,14 +326,13 @@ app.post("/result", (req, res) => {
     const d = Number(req.body.d);
 
     if (!isValidYmd(y, m, d)) {
-      throw new Error(`無効な日付です（${YEAR_MIN}〜${YEAR_MAX}年の正しい日付を選んでください）`);
+      throw new Error(`無効な日付です（${YEAR_MIN}〜${YEAR_MAX}年の正しい日付を入力してください）`);
     }
 
     let dayGanzhi;
     try {
       dayGanzhi = getDayGanzhiFromSolar(y, m, d);
     } catch (libErr) {
-      // ライブラリ非対応や暦の扱いで落ちる場合
       throw new Error("この日付は暦計算ライブラリの対応外の可能性があります。別の日付でお試しください。");
     }
 
@@ -322,4 +366,3 @@ app.post("/result", (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log("Listening on " + PORT));
-
