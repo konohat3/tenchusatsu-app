@@ -8,7 +8,7 @@ app.use(express.urlencoded({ extended: true }));
 const AUTHOR_NAME = "tesokakonoha.com";
 const AUTHOR_URL = "https://tesokakonoha.com/";
 
-// 年の入力範囲（UI）
+// 年の入力範囲（UI/サーバ共通）
 const YEAR_MIN = 900;
 const YEAR_MAX = 3000;
 
@@ -31,7 +31,7 @@ function isValidYmd(y, m, d) {
   if (m < 1 || m > 12) return false;
   if (d < 1 || d > 31) return false;
 
-  // 存在する日付かチェック（UTCで確実に）
+  // 存在する日付か（2/30などを弾く）
   const dt = new Date(Date.UTC(y, m - 1, d));
   return (
     dt.getUTCFullYear() === y &&
@@ -47,7 +47,7 @@ function getDayGanzhiFromSolar(y, m, d) {
     return lunar.getDayInGanZhi();
   }
   if (typeof lunar.getDayGan === "function" && typeof lunar.getDayZhi === "function") {
-    return `${lunar.getDayGan()}${lunar.getDayZhi()}`;
+    return "" + lunar.getDayGan() + lunar.getDayZhi();
   }
 
   const s = lunar.toFullString();
@@ -66,257 +66,135 @@ function tenchusatsuTypeFromDayGanzhi(dayGanzhi) {
 
   const ganIndex = GANS.indexOf(gan);
   const zhiIndex = ZHIS.indexOf(zhi);
-  if (ganIndex < 0 || zhiIndex < 0) throw new Error(`日干支の形式が想定外: ${dayGanzhi}`);
+  if (ganIndex < 0 || zhiIndex < 0) throw new Error("日干支の形式が想定外です: " + dayGanzhi);
 
+  // 旬頭の地支 = (地支index - 干index) mod 12
   const xunStartZhiIndex = (zhiIndex - ganIndex + 12) % 12;
   const xunStartZhi = ZHIS[xunStartZhiIndex];
 
+  // 旬頭地支 → 空亡（二支） = 天中殺6タイプ
   const MAP = { "子":"戌亥","戌":"申酉","申":"午未","午":"辰巳","辰":"寅卯","寅":"子丑" };
   const type = MAP[xunStartZhi];
-  if (!type) throw new Error(`旬頭地支が想定外: ${xunStartZhi}`);
+  if (!type) throw new Error("旬頭地支が想定外です: " + xunStartZhi);
   return type;
 }
 
 function footerHtml() {
-  return `
-    <div class="footer">
-      <a href="${AUTHOR_URL}" target="_blank" rel="noopener noreferrer">Created by ${AUTHOR_NAME}</a>
-    </div>
-  `;
+  return (
+    '<div class="footer">' +
+      '<a href="' + AUTHOR_URL + '" target="_blank" rel="noopener noreferrer">' +
+        "Created by " + AUTHOR_NAME +
+      "</a>" +
+    "</div>"
+  );
 }
 
-function renderPage(html) {
-  return `<!doctype html>
-<html lang="ja"><head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>天中殺チェック</title>
-<style>
-  *{box-sizing:border-box}
-  body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;margin:24px;line-height:1.6}
-  .card{
-    max-width:720px;
-    margin:0 auto;
-    border:1px solid #ddd;
-    border-radius:12px;
-    padding:16px;
-    overflow:hidden;
-  }
-  .center{ text-align:center; }
-  h1{ text-align:center; margin: 0 0 12px; }
+function renderPage(innerHtml) {
+  return (
+'<!doctype html>' +
+'<html lang="ja"><head>' +
+'<meta charset="utf-8" />' +
+'<meta name="viewport" content="width=device-width, initial-scale=1" />' +
+"<title>天中殺チェック</title>" +
+"<style>" +
+"  *{box-sizing:border-box}" +
+"  body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;margin:24px;line-height:1.6}" +
+"  .card{max-width:720px;margin:0 auto;border:1px solid #ddd;border-radius:12px;padding:16px;overflow:hidden}" +
+"  .center{text-align:center}" +
+"  h1{margin:0 0 12px;text-align:center}" +
 
-  form{ margin-top:10px; }
-  label{display:block;margin-top:12px;text-align:center}
+"  form{margin-top:10px}" +
+"  label{display:block;margin-top:12px;text-align:center}" +
 
-  /* 入力列（年手入力＋月日select） */
-  .dob{
-    width:min(560px, 100%);
-    margin: 6px auto 0;
-    display:grid;
-    grid-template-columns: 1.3fr 1fr 1fr;
-    gap:10px;
-    justify-content:center;
-    align-items:end;
-  }
+"  .row{width:min(560px,100%);margin:10px auto 0;display:flex;gap:10px;justify-content:center;align-items:flex-end;flex-wrap:wrap}" +
+"  .field{flex:1 1 140px;min-width:140px;text-align:center}" +
+"  .cap{font-size:13px;color:#555;margin-bottom:4px}" +
 
-  .field{ text-align:left; }
-  .field .cap{ font-size:13px; color:#555; text-align:center; margin-bottom:4px; }
+"  input,button{font-size:16px;padding:10px;width:100%;max-width:100%}" +
+"  button{cursor:pointer;width:min(420px,100%);display:block;margin:14px auto 0}" +
 
-  input, select, button{
-    font-size:16px;
-    padding:10px;
-    max-width:100%;
-    width:100%;
-  }
+"  .muted{color:#666;font-size:13px;margin-top:10px}" +
 
-  /* 年入力：数字キーボード誘導 */
-  input[type="number"]{ appearance:textfield; }
-  input[type="number"]::-webkit-outer-spin-button,
-  input[type="number"]::-webkit-inner-spin-button{ -webkit-appearance: none; margin: 0; }
+"  .result{margin:16px auto 0;padding:12px;background:#fff9db;border-radius:10px;width:min(560px,100%);max-width:100%;text-align:center}" +
+"  a.btn{display:inline-block;margin-top:12px;padding:12px 14px;border-radius:10px;border:1px solid #222;text-decoration:none;color:#222;background:#fff}" +
+"  .back{margin-top:16px;text-align:center}" +
 
-  button{
-    cursor:pointer;
-    width:min(420px, 100%);
-    display:block;
-    margin:12px auto 0;
-  }
-
-  .muted{color:#666;font-size:13px;margin-top:10px}
-
-  .result{
-    margin:16px auto 0;
-    padding:12px;
-    background:#fff9db;
-    border-radius:10px;
-    width:min(560px, 100%);
-    max-width:100%;
-    text-align:center;
-  }
-
-  a.btn{
-    display:inline-block;
-    margin-top:12px;
-    text-align:center;
-    padding:12px 14px;
-    border-radius:10px;
-    border:1px solid #222;
-    text-decoration:none;
-    color:#222;
-    background:#fff;
-  }
-
-  .back{ margin-top:16px; text-align:center; }
-
-  .footer{
-    margin-top:18px;
-    padding-top:12px;
-    border-top:1px solid #eee;
-    text-align:center;
-    font-size:12px;
-    color:#777;
-  }
-  .footer a{ color:#777; text-decoration:none; }
-  .footer a:hover{ text-decoration:underline; }
-
-  /* スマホでは縦積み */
-  @media (max-width: 520px){
-    .dob{
-      grid-template-columns: 1fr;
-      gap:8px;
-    }
-  }
-</style>
-</head>
-<body>
-  <div class="card">
-    ${html}
-    ${footerHtml()}
-  </div>
-</body></html>`;
+"  .footer{margin-top:18px;padding-top:12px;border-top:1px solid #eee;text-align:center;font-size:12px;color:#777}" +
+"  .footer a{color:#777;text-decoration:none}" +
+"  .footer a:hover{text-decoration:underline}" +
+"</style>" +
+"</head><body>" +
+'  <div class="card">' +
+     innerHtml +
+     footerHtml() +
+"  </div>" +
+"</body></html>"
+  );
 }
 
 app.get("/", (req, res) => {
-  res.send(renderPage(`
-    <div class="center">
-      <h1>天中殺チェック</h1>
+  const html =
+    '<div class="center">' +
+      "<h1>天中殺チェック</h1>" +
+      '<form method="POST" action="/result" id="form" novalidate>' +
+        "<label>生年月日</label>" +
 
-      <form method="POST" action="/result" id="form" novalidate>
-        <label>生年月日</label>
+        '<div class="row" aria-label="生年月日">' +
+          '<div class="field">' +
+            '<div class="cap">年（西暦）</div>' +
+            '<input type="number" name="y" id="y" inputmode="numeric" min="' + YEAR_MIN + '" max="' + YEAR_MAX + '" placeholder="例：2026" required />' +
+          "</div>" +
 
-        <div class="dob" aria-label="生年月日">
-          <div class="field">
-            <div class="cap">年（西暦）</div>
-            <input
-              type="number"
-              name="y"
-              id="y"
-              inputmode="numeric"
-              min="${YEAR_MIN}"
-              max="${YEAR_MAX}"
-              placeholder="西暦（例：1982）"
-              required
-            />
-          </div>
+          '<div class="field">' +
+            '<div class="cap">月</div>' +
+            '<input type="number" name="m" id="m" inputmode="numeric" min="1" max="12" placeholder="例：1" required />' +
+          "</div>" +
 
-          <div class="field">
-            <div class="cap">月</div>
-            <select name="m" id="m" required aria-label="月">
-              <option value="">選択</option>
-              ${Array.from({length:12}, (_,i)=>`<option value="${i+1}">${i+1}</option>`).join("")}
-            </select>
-          </div>
+          '<div class="field">' +
+            '<div class="cap">日</div>' +
+            '<input type="number" name="d" id="d" inputmode="numeric" min="1" max="31" placeholder="例：7" required />' +
+          "</div>" +
+        "</div>" +
 
-          <div class="field">
-            <div class="cap">日</div>
-            <select name="d" id="d" required aria-label="日">
-              <option value="">選択</option>
-            </select>
-          </div>
-        </div>
+        '<button type="submit">チェックする</button>' +
+      "</form>" +
 
-        <button type="submit">チェックする</button>
-      </form>
+      '<div class="muted">※生年月日（時間なし）から日干支→旬空（空亡）を天中殺として判定します。</div>' +
+    "</div>" +
 
-      <div class="muted">※生年月日（時間なし）から日干支→旬空（空亡）を天中殺として判定します。</div>
-    </div>
+    "<script>" +
+    "(function(){" +
+      "var YEAR_MIN=" + YEAR_MIN + ";" +
+      "var YEAR_MAX=" + YEAR_MAX + ";" +
+      "var form=document.getElementById('form');" +
+      "var y=document.getElementById('y');" +
+      "var m=document.getElementById('m');" +
+      "var d=document.getElementById('d');" +
 
-<script>
-(function(){
-  const YEAR_MIN = ${YEAR_MIN};
-  const YEAR_MAX = ${YEAR_MAX};
+      "function isInt(v){return Number.isFinite(v) && Math.floor(v)===v;}" +
+      "function validDate(Y,M,D){" +
+        "if(!isInt(Y)||!isInt(M)||!isInt(D)) return false;" +
+        "if(Y<YEAR_MIN||Y>YEAR_MAX) return false;" +
+        "if(M<1||M>12) return false;" +
+        "if(D<1||D>31) return false;" +
+        "var dt=new Date(Date.UTC(Y,M-1,D));" +
+        "return dt.getUTCFullYear()===Y && dt.getUTCMonth()===(M-1) && dt.getUTCDate()===D;" +
+      "}" +
 
-  const y = document.getElementById('y');
-  const m = document.getElementById('m');
-  const d = document.getElementById('d');
-  const form = document.getElementById('form');
+      "form.addEventListener('submit',function(e){" +
+        "var Y=parseInt(y.value,10);" +
+        "var M=parseInt(m.value,10);" +
+        "var D=parseInt(d.value,10);" +
+        "if(!validDate(Y,M,D){" +
+          "e.preventDefault();" +
+          "alert('日付が正しくありません。年は'+YEAR_MIN+'〜'+YEAR_MAX+'、月は1〜12、日付は存在する日を入力してください。');" +
+          "return;" +
+        "}" +
+      "});" +
+    "})();" +
+    "</script>";
 
-  function daysInMonth(year, month){
-    if (!year || !month) return 31;
-    return new Date(Date.UTC(year, month, 0)).getUTCDate();
-  }
-
-  function rebuildDays(){
-    const year = parseInt(y.value, 10);
-    const month = parseInt(m.value, 10);
-
-    const current = d.value;
-    d.innerHTML = '<option value="">選択</option>';
-
-    if (!Number.isFinite(year) || !Number.isFinite(month)) return;
-
-    const max = daysInMonth(year, month);
-    const frag = document.createDocumentFragment();
-    for (let day=1; day<=max; day++){
-      const opt = document.createElement('option');
-      opt.value = String(day);
-      opt.textContent = String(day);
-      frag.appendChild(opt);
-    }
-    d.appendChild(frag);
-
-    if (current && parseInt(current,10) <= max) d.value = current;
-  }
-
-  y.addEventListener('input', rebuildDays);
-  m.addEventListener('change', rebuildDays);
-
-  // 表示：入力が確定したら「西暦◯◯年」っぽく見せる（値は数字のまま）
-  y.addEventListener('blur', () => {
-    const year = parseInt(y.value, 10);
-    if (Number.isFinite(year)) {
-      // 見た目の補助（placeholderを変更）
-      y.placeholder = '西暦（例：1982）';
-    }
-  });
-
-  // 送信前チェック（ブラウザ標準より分かりやすく）
-  form.addEventListener('submit', (e) => {
-    const year = parseInt(y.value, 10);
-    const month = parseInt(m.value, 10);
-    const day = parseInt(d.value, 10);
-
-    if (!Number.isFinite(year) || year < YEAR_MIN || year > YEAR_MAX) {
-      e.preventDefault();
-      alert('年は ' + YEAR_MIN + '〜' + YEAR_MAX + ' の範囲で入力してください（例：1982）');
-      y.focus();
-      return;
-    }
-    if (!Number.isFinite(month)) {
-      e.preventDefault();
-      alert('月を選択してください');
-      m.focus();
-      return;
-    }
-    if (!Number.isFinite(day)) {
-      e.preventDefault();
-      alert('日を選択してください');
-      d.focus();
-      return;
-    }
-  });
-})();
-</script>
-  `));
+  res.send(renderPage(html));
 });
 
 app.post("/result", (req, res) => {
@@ -326,7 +204,7 @@ app.post("/result", (req, res) => {
     const d = Number(req.body.d);
 
     if (!isValidYmd(y, m, d)) {
-      throw new Error(`無効な日付です（${YEAR_MIN}〜${YEAR_MAX}年の正しい日付を入力してください）`);
+      throw new Error("無効な日付です（年は" + YEAR_MIN + "〜" + YEAR_MAX + "、月は1〜12、日付は存在する日を入力してください）");
     }
 
     let dayGanzhi;
@@ -339,28 +217,26 @@ app.post("/result", (req, res) => {
     const type = tenchusatsuTypeFromDayGanzhi(dayGanzhi);
     const url = TYPE_TO_URL[type];
 
-    res.send(renderPage(`
-      <div class="center">
-        <h1>結果</h1>
+    const html =
+      '<div class="center">' +
+        "<h1>結果</h1>" +
+        '<div class="result">' +
+          "<div><strong>あなたの天中殺：</strong>" + type + "天中殺</div>" +
+          "<div><strong>日干支：</strong>" + dayGanzhi + "</div>" +
+        "</div>" +
+        '<a class="btn" href="' + url + '" target="_blank" rel="noopener noreferrer">解説ページへ</a>' +
+        '<div class="back"><a href="/">← もう一度</a></div>' +
+      "</div>";
 
-        <div class="result">
-          <div><strong>あなたの天中殺：</strong>${type}天中殺</div>
-          <div><strong>日干支：</strong>${dayGanzhi}</div>
-        </div>
-
-        <a class="btn" href="${url}" target="_blank" rel="noopener noreferrer">解説ページへ</a>
-
-        <div class="back"><a href="/">← もう一度</a></div>
-      </div>
-    `));
+    res.send(renderPage(html));
   } catch (e) {
-    res.status(400).send(renderPage(`
-      <div class="center">
-        <h1>エラー</h1>
-        <p>${String(e.message || e)}</p>
-        <div class="back"><a href="/">← 戻る</a></div>
-      </div>
-    `));
+    const html =
+      '<div class="center">' +
+        "<h1>エラー</h1>" +
+        "<p>" + String(e.message || e) + "</p>" +
+        '<div class="back"><a href="/">← 戻る</a></div>' +
+      "</div>";
+    res.status(400).send(renderPage(html));
   }
 });
 
